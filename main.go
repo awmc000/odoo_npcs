@@ -366,7 +366,7 @@ func main() {
 
 	schedule := NewScheduleWidget(model, model.Users)
 	scroll := container.NewScroll(schedule)
-	scroll.SetMinSize(fyne.NewSize(980, 700))
+	scroll.SetMinSize(fyne.NewSize(400, 200))
 
 	schedule.SetHandlers(
 		func(user SimUser, minute int) {
