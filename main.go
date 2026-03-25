@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"github.com/playwright-community/playwright-go"
 )
 
 type SimUser struct {
@@ -445,16 +446,92 @@ func main() {
 		widget.NewLabel("Timeline view: scroll vertically to inspect the full day across simulated users."),
 	)
 
+	odooURL := widget.NewEntry()
+	odooURL.SetPlaceHolder("https://your-odoo-instance.example.com")
+	odooURL.SetText("http://localhost:8069")
+
+	odooTestButton := widget.NewButton("Test", nil)
+	odooSettingsContent := container.NewVBox(
+		widget.NewForm(
+			widget.NewFormItem("URL", odooURL),
+		),
+		odooTestButton,
+	)
+	odooSettingsContent.Hide()
+
+	programRefresh := widget.NewSelect([]string{"15 seconds", "30 seconds", "60 seconds"}, nil)
+	programRefresh.SetSelected("30 seconds")
+	programTimeFormat := widget.NewSelect([]string{"24-hour", "12-hour"}, nil)
+	programTimeFormat.SetSelected("24-hour")
+	programSettingsContent := container.NewVBox(
+		widget.NewForm(
+			widget.NewFormItem("Refresh cadence", programRefresh),
+			widget.NewFormItem("Time format", programTimeFormat),
+		),
+	)
+	programSettingsContent.Hide()
+
+	odooExpanded := false
+	programExpanded := false
+
+	var odooSettingsButton *widget.Button
+	odooSettingsButton = widget.NewButton("Odoo settings", func() {
+		odooExpanded = !odooExpanded
+		if odooExpanded {
+			odooSettingsContent.Show()
+			status.SetText("Odoo settings expanded.")
+		} else {
+			odooSettingsContent.Hide()
+			status.SetText("Odoo settings collapsed.")
+		}
+		odooSettingsButton.SetText(toggleButtonLabel("Odoo settings", odooExpanded))
+	})
+	odooSettingsButton.SetText(toggleButtonLabel("Odoo settings", odooExpanded))
+
+	var programSettingsButton *widget.Button
+	programSettingsButton = widget.NewButton("Program settings", func() {
+		programExpanded = !programExpanded
+		if programExpanded {
+			programSettingsContent.Show()
+			status.SetText("Program settings expanded.")
+		} else {
+			programSettingsContent.Hide()
+			status.SetText("Program settings collapsed.")
+		}
+		programSettingsButton.SetText(toggleButtonLabel("Program settings", programExpanded))
+	})
+	programSettingsButton.SetText(toggleButtonLabel("Program settings", programExpanded))
+
+	odooTestButton.OnTapped = func() {
+		url := strings.TrimSpace(odooURL.Text)
+		if url == "" {
+			status.SetText("Enter an Odoo URL before running the Playwright test.")
+			return
+		}
+
+		odooTestButton.Disable()
+		status.SetText(fmt.Sprintf("Testing Odoo URL %s with Playwright...", url))
+
+		go func() {
+			err := testURLWithPlaywright(url)
+			fyne.Do(func() {
+				odooTestButton.Enable()
+				if err != nil {
+					status.SetText(fmt.Sprintf("Playwright test failed for %s: %s", url, err.Error()))
+					return
+				}
+				status.SetText(fmt.Sprintf("Playwright reached %s successfully.", url))
+			})
+		}()
+	}
+
 	rightPane := container.NewVBox(
 		widget.NewLabelWithStyle("Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewButton("Odoo settings", func() {
-			status.SetText("Open a form or secondary window for Odoo environment settings.")
-		}),
-		widget.NewButton("Program settings", func() {
-			status.SetText("Open scheduler/runtime settings here.")
-		}),
+		odooSettingsButton,
+		odooSettingsContent,
+		programSettingsButton,
+		programSettingsContent,
 		widget.NewSeparator(),
-		widget.NewLabel("Next good extensions:"),
 	)
 
 	header := container.NewVBox(
@@ -579,4 +656,48 @@ func maxf(a, b float32) float32 {
 		return a
 	}
 	return b
+}
+
+func toggleButtonLabel(base string, expanded bool) string {
+	if expanded {
+		return "▼ " + base
+	}
+	return "▶ " + base
+}
+
+func testURLWithPlaywright(url string) error {
+	pw, err := playwright.Run()
+	if err != nil {
+		return fmt.Errorf("start Playwright: %w", err)
+	}
+	defer func() {
+		_ = pw.Stop()
+	}()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(true),
+	})
+	if err != nil {
+		return fmt.Errorf("launch browser: %w", err)
+	}
+	defer func() {
+		_ = browser.Close()
+	}()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		return fmt.Errorf("create page: %w", err)
+	}
+	defer func() {
+		_ = page.Close()
+	}()
+
+	_, err = page.Goto(url, playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	})
+	if err != nil {
+		return fmt.Errorf("open URL: %w", err)
+	}
+
+	return nil
 }
