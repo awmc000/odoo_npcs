@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -311,6 +312,20 @@ func (r *scheduleRenderer) Refresh() {
 	hint.Move(fyne.NewPos(10, g.outerH-20))
 	objs = append(objs, hint)
 
+	if nowY, ok := r.currentTimeY(g); ok {
+		nowLine := canvas.NewLine(color.NRGBA{R: 217, G: 119, B: 6, A: 255})
+		nowLine.StrokeWidth = 2
+		nowLine.Position1 = fyne.NewPos(g.gridX, nowY)
+		nowLine.Position2 = fyne.NewPos(g.gridX+g.gridW, nowY)
+		objs = append(objs, nowLine)
+
+		nowLabel := canvas.NewText("NOW", color.NRGBA{R: 146, G: 64, B: 14, A: 255})
+		nowLabel.TextStyle = fyne.TextStyle{Bold: true}
+		nowLabel.TextSize = 12
+		nowLabel.Move(fyne.NewPos(12, nowY-18))
+		objs = append(objs, nowLabel)
+	}
+
 	r.objects = objs
 }
 
@@ -319,6 +334,16 @@ func (r *scheduleRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *scheduleRenderer) Destroy() {}
+
+func (r *scheduleRenderer) currentTimeY(g scheduleGeometry) (float32, bool) {
+	now := time.Now()
+	minuteOfDay := float32(now.Hour()*60+now.Minute()) + float32(now.Second())/60 + float32(now.Nanosecond())/float32(time.Minute)
+	if minuteOfDay < float32(r.sw.model.StartMin) || minuteOfDay > float32(r.sw.model.EndMin) {
+		return 0, false
+	}
+
+	return g.gridY + (minuteOfDay-float32(r.sw.model.StartMin))*g.minuteH, true
+}
 
 func blockStyle(kind BlockKind) (fill, stroke, txt color.NRGBA) {
 	if kind == BlockUnavailable {
