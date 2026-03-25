@@ -323,7 +323,7 @@ func blockStyle(kind BlockKind) (fill, stroke, txt color.NRGBA) {
 
 func main() {
 	a := app.New()
-	w := a.NewWindow("Odoo Load Test Scheduler")
+	w := a.NewWindow("Odoo NPCs")
 	w.Resize(fyne.NewSize(1420, 900))
 	w.SetFixedSize(false)
 
@@ -424,10 +424,6 @@ func main() {
 		}),
 		widget.NewSeparator(),
 		widget.NewLabel("Next good extensions:"),
-		widget.NewLabel("• drag / resize blocks"),
-		widget.NewLabel("• zoom hour scale"),
-		widget.NewLabel("• multi-day or multi-phase timeline"),
-		widget.NewLabel("• per-user color/state badges"),
 	)
 
 	header := container.NewVBox(
