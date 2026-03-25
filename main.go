@@ -205,15 +205,21 @@ func (r *scheduleRenderer) Refresh() {
 
 	for m := r.sw.model.StartMin; m <= r.sw.model.EndMin; m += r.sw.model.SlotMinutes {
 		y := g.gridY + float32(m-r.sw.model.StartMin)*g.minuteH
-		line := canvas.NewLine(color.NRGBA{R: 215, G: 221, B: 230, A: 255})
+		lineColor := color.NRGBA{R: 229, G: 233, B: 240, A: 255}
+		if m%60 == 0 {
+			lineColor = color.NRGBA{R: 215, G: 221, B: 230, A: 255}
+		}
+		line := canvas.NewLine(lineColor)
 		line.Position1 = fyne.NewPos(g.gridX, y)
 		line.Position2 = fyne.NewPos(g.gridX+g.gridW, y)
 		objs = append(objs, line)
 
-		label := canvas.NewText(formatClock(m), color.NRGBA{R: 84, G: 93, B: 105, A: 255})
-		label.TextSize = 13
-		label.Move(fyne.NewPos(12, y-8))
-		objs = append(objs, label)
+		if m%60 == 0 {
+			label := canvas.NewText(formatClock(m), color.NRGBA{R: 84, G: 93, B: 105, A: 255})
+			label.TextSize = 13
+			label.Move(fyne.NewPos(12, y-8))
+			objs = append(objs, label)
+		}
 	}
 
 	for i, u := range r.sw.visibleUsers {
@@ -341,7 +347,7 @@ func main() {
 			nameEntry := widget.NewEntry()
 			nameEntry.SetText("NEW TASK")
 
-			durationOptions := []string{"30", "60", "90", "120"}
+			durationOptions := []string{"15", "30", "45", "60", "90", "120"}
 			durationSelect := widget.NewSelect(durationOptions, nil)
 			durationSelect.SetSelected("60")
 
@@ -411,7 +417,7 @@ func main() {
 		widget.NewButton("◀ 4+", func() {
 			status.SetText("Hook this up to horizontal paging or previous NPC columns.")
 		}),
-		widget.NewLabel("Timeline view: pan with the scroll container to inspect different times and simulated users."),
+		widget.NewLabel("Timeline view: scroll vertically to inspect the full day across simulated users."),
 	)
 
 	rightPane := container.NewVBox(
@@ -445,29 +451,43 @@ func main() {
 
 func sampleModel() *ScheduleModel {
 	users := []SimUser{
-		{ID: "amm", Name: "Ann M.", Group: "Group 1"},
-		{ID: "jv", Name: "Jay V.", Group: "Group 1"},
-		{ID: "bm", Name: "Bea M.", Group: "Group 2"},
-		{ID: "tp", Name: "Terry P.", Group: "Group 2"},
+		{ID: "amm", Name: "Ann M.", Group: "Cashier"},
+		{ID: "jv", Name: "Jay V.", Group: "Cashier"},
+		{ID: "bm", Name: "Bea M.", Group: "Bookkeeper"},
+		{ID: "tp", Name: "Terry P.", Group: "Manager"},
 	}
 
 	return &ScheduleModel{
-		StartMin:    8 * 60,
-		EndMin:      12 * 60,
-		SlotMinutes: 30,
+		StartMin:    0,
+		EndMin:      24*60 - 1,
+		SlotMinutes: 15,
 		Users:       users,
 		Blocks: []ScheduleBlock{
-			{ID: "u1", UserID: "amm", StartMin: 8 * 60, EndMin: 9 * 60, Kind: BlockTask, Title: "POS"},
-			{ID: "u2", UserID: "amm", StartMin: 10 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
-			{ID: "u3", UserID: "jv", StartMin: 8 * 60, EndMin: 8*60 + 30, Kind: BlockUnavailable},
-			{ID: "u4", UserID: "jv", StartMin: 8*60 + 30, EndMin: 11 * 60, Kind: BlockTask, Title: "ACCT"},
-			{ID: "u5", UserID: "jv", StartMin: 11 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
-			{ID: "u6", UserID: "bm", StartMin: 8 * 60, EndMin: 8*60 + 30, Kind: BlockTask, Title: "LOGI"},
-			{ID: "u7", UserID: "bm", StartMin: 8*60 + 30, EndMin: 10 * 60, Kind: BlockUnavailable},
-			{ID: "u8", UserID: "bm", StartMin: 10 * 60, EndMin: 11 * 60, Kind: BlockTask, Title: "SWIN"},
-			{ID: "u9", UserID: "bm", StartMin: 11 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
-			{ID: "u10", UserID: "tp", StartMin: 8 * 60, EndMin: 10 * 60, Kind: BlockUnavailable},
-			{ID: "u11", UserID: "tp", StartMin: 10 * 60, EndMin: 12 * 60, Kind: BlockTask, Title: "POS"},
+			{ID: "u1", UserID: "amm", StartMin: 8 * 60, EndMin: 10*60 + 30, Kind: BlockTask, Title: "REGISTER"},
+			{ID: "u2", UserID: "amm", StartMin: 10*60 + 30, EndMin: 10*60 + 45, Kind: BlockUnavailable},
+			{ID: "u3", UserID: "amm", StartMin: 10*60 + 45, EndMin: 13 * 60, Kind: BlockTask, Title: "CHECKOUT"},
+			{ID: "u4", UserID: "amm", StartMin: 13 * 60, EndMin: 13*60 + 30, Kind: BlockUnavailable},
+			{ID: "u5", UserID: "amm", StartMin: 13*60 + 30, EndMin: 16 * 60, Kind: BlockTask, Title: "CUSTOMER DESK"},
+
+			{ID: "u6", UserID: "jv", StartMin: 9 * 60, EndMin: 11 * 60, Kind: BlockTask, Title: "REGISTER"},
+			{ID: "u7", UserID: "jv", StartMin: 11 * 60, EndMin: 11*60 + 15, Kind: BlockUnavailable},
+			{ID: "u8", UserID: "jv", StartMin: 11*60 + 15, EndMin: 14 * 60, Kind: BlockTask, Title: "RETURNS"},
+			{ID: "u9", UserID: "jv", StartMin: 14 * 60, EndMin: 14*60 + 30, Kind: BlockUnavailable},
+			{ID: "u10", UserID: "jv", StartMin: 14*60 + 30, EndMin: 18 * 60, Kind: BlockTask, Title: "CHECKOUT"},
+
+			{ID: "u11", UserID: "bm", StartMin: 8*60 + 30, EndMin: 10 * 60, Kind: BlockTask, Title: "RECONCILIATION"},
+			{ID: "u12", UserID: "bm", StartMin: 10 * 60, EndMin: 10*60 + 15, Kind: BlockUnavailable},
+			{ID: "u13", UserID: "bm", StartMin: 10*60 + 15, EndMin: 12 * 60, Kind: BlockTask, Title: "AP INVOICES"},
+			{ID: "u14", UserID: "bm", StartMin: 13 * 60, EndMin: 15 * 60, Kind: BlockTask, Title: "BANK DEPOSITS"},
+			{ID: "u15", UserID: "bm", StartMin: 15 * 60, EndMin: 15*60 + 15, Kind: BlockUnavailable},
+			{ID: "u16", UserID: "bm", StartMin: 15*60 + 15, EndMin: 17 * 60, Kind: BlockTask, Title: "LEDGER REVIEW"},
+
+			{ID: "u17", UserID: "tp", StartMin: 7*60 + 45, EndMin: 9 * 60, Kind: BlockTask, Title: "OPENING WALK"},
+			{ID: "u18", UserID: "tp", StartMin: 9 * 60, EndMin: 11 * 60, Kind: BlockTask, Title: "FLOOR SUPPORT"},
+			{ID: "u19", UserID: "tp", StartMin: 11 * 60, EndMin: 11*60 + 30, Kind: BlockUnavailable},
+			{ID: "u20", UserID: "tp", StartMin: 11*60 + 30, EndMin: 13 * 60, Kind: BlockTask, Title: "VENDOR CALLS"},
+			{ID: "u21", UserID: "tp", StartMin: 13*60 + 30, EndMin: 15 * 60, Kind: BlockTask, Title: "SCHEDULE REVIEW"},
+			{ID: "u22", UserID: "tp", StartMin: 15 * 60, EndMin: 17 * 60, Kind: BlockTask, Title: "CLOSING PREP"},
 		},
 	}
 }
@@ -502,6 +522,13 @@ func shortName(name string) string {
 }
 
 func formatClock(minute int) string {
+	if minute >= 24*60 {
+		minute = 24*60 - 1
+	}
+	if minute < 0 {
+		minute = 0
+	}
+
 	h := minute / 60
 	m := minute % 60
 	suffix := "AM"
