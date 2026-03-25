@@ -1,0 +1,544 @@
+package main
+
+import (
+	"fmt"
+	"image/color"
+	"sort"
+	"strings"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
+)
+
+type SimUser struct {
+	ID    string
+	Name  string
+	Group string
+}
+
+type BlockKind int
+
+const (
+	BlockUnavailable BlockKind = iota
+	BlockTask
+)
+
+type ScheduleBlock struct {
+	ID       string
+	UserID   string
+	Title    string
+	StartMin int
+	EndMin   int
+	Kind     BlockKind
+}
+
+type ScheduleModel struct {
+	StartMin    int
+	EndMin      int
+	SlotMinutes int
+	Users       []SimUser
+	Blocks      []ScheduleBlock
+}
+
+type ScheduleWidget struct {
+	widget.BaseWidget
+	model        *ScheduleModel
+	visibleUsers []SimUser
+	onEmptyTap   func(user SimUser, minute int)
+	onBlockTap   func(block ScheduleBlock)
+}
+
+func NewScheduleWidget(model *ScheduleModel, users []SimUser) *ScheduleWidget {
+	sw := &ScheduleWidget{model: model, visibleUsers: users}
+	sw.ExtendBaseWidget(sw)
+	return sw
+}
+
+func (sw *ScheduleWidget) SetVisibleUsers(users []SimUser) {
+	sw.visibleUsers = users
+	sw.Refresh()
+}
+
+func (sw *ScheduleWidget) SetHandlers(onEmpty func(user SimUser, minute int), onBlock func(block ScheduleBlock)) {
+	sw.onEmptyTap = onEmpty
+	sw.onBlockTap = onBlock
+}
+
+func (sw *ScheduleWidget) MinSize() fyne.Size {
+	columns := len(sw.visibleUsers)
+	if columns < 1 {
+		columns = 1
+	}
+
+	hours := float32(sw.model.EndMin-sw.model.StartMin) / 60.0
+	return fyne.NewSize(92+float32(columns)*160, 74+hours*110)
+}
+
+func (sw *ScheduleWidget) Tapped(ev *fyne.PointEvent) {
+	geom := sw.geometry(sw.Size())
+	x := ev.Position.X
+	y := ev.Position.Y
+
+	if x < geom.gridX || x > geom.gridX+geom.gridW || y < geom.gridY || y > geom.gridY+geom.gridH {
+		return
+	}
+
+	col := int((x - geom.gridX) / geom.colW)
+	if col < 0 || col >= len(sw.visibleUsers) {
+		return
+	}
+
+	minute := sw.model.StartMin + int((y-geom.gridY)/geom.minuteH)
+	minute = snapDown(minute, sw.model.SlotMinutes)
+
+	user := sw.visibleUsers[col]
+	for _, b := range sw.model.Blocks {
+		if b.UserID != user.ID {
+			continue
+		}
+		if minute >= b.StartMin && minute < b.EndMin {
+			if sw.onBlockTap != nil {
+				sw.onBlockTap(b)
+			}
+			return
+		}
+	}
+
+	if sw.onEmptyTap != nil {
+		sw.onEmptyTap(user, minute)
+	}
+}
+
+func (sw *ScheduleWidget) TappedSecondary(*fyne.PointEvent) {}
+
+func (sw *ScheduleWidget) CreateRenderer() fyne.WidgetRenderer {
+	r := &scheduleRenderer{sw: sw}
+	r.Refresh()
+	return r
+}
+
+type scheduleGeometry struct {
+	outerW, outerH float32
+	gridX, gridY   float32
+	gridW, gridH   float32
+	colW, minuteH  float32
+	leftW, topH    float32
+}
+
+func (sw *ScheduleWidget) geometry(size fyne.Size) scheduleGeometry {
+	columns := len(sw.visibleUsers)
+	if columns < 1 {
+		columns = 1
+	}
+
+	leftW := float32(92)
+	topH := float32(74)
+	contentW := float32(columns) * 160
+	contentH := float32(sw.model.EndMin-sw.model.StartMin) * 1.8
+
+	outerW := maxf(size.Width, leftW+contentW)
+	outerH := maxf(size.Height, topH+contentH)
+
+	gridW := outerW - leftW
+	gridH := outerH - topH
+	minuteH := gridH / float32(sw.model.EndMin-sw.model.StartMin)
+	colW := gridW / float32(columns)
+
+	return scheduleGeometry{
+		outerW:  outerW,
+		outerH:  outerH,
+		gridX:   leftW,
+		gridY:   topH,
+		gridW:   gridW,
+		gridH:   gridH,
+		colW:    colW,
+		minuteH: minuteH,
+		leftW:   leftW,
+		topH:    topH,
+	}
+}
+
+type scheduleRenderer struct {
+	sw      *ScheduleWidget
+	size    fyne.Size
+	objects []fyne.CanvasObject
+}
+
+func (r *scheduleRenderer) Layout(size fyne.Size) {
+	r.size = size
+	r.Refresh()
+}
+
+func (r *scheduleRenderer) MinSize() fyne.Size {
+	return r.sw.MinSize()
+}
+
+func (r *scheduleRenderer) Refresh() {
+	size := r.size
+	if size.Width == 0 || size.Height == 0 {
+		size = r.sw.MinSize()
+	}
+	g := r.sw.geometry(size)
+	var objs []fyne.CanvasObject
+
+	bg := canvas.NewRectangle(color.NRGBA{R: 250, G: 251, B: 253, A: 255})
+	bg.Resize(fyne.NewSize(g.outerW, g.outerH))
+	objs = append(objs, bg)
+
+	topBg := canvas.NewRectangle(color.NRGBA{R: 245, G: 247, B: 250, A: 255})
+	topBg.Move(fyne.NewPos(0, 0))
+	topBg.Resize(fyne.NewSize(g.outerW, g.topH))
+	objs = append(objs, topBg)
+
+	leftBg := canvas.NewRectangle(color.NRGBA{R: 245, G: 247, B: 250, A: 255})
+	leftBg.Move(fyne.NewPos(0, g.topH))
+	leftBg.Resize(fyne.NewSize(g.leftW, g.gridH))
+	objs = append(objs, leftBg)
+
+	cornerBg := canvas.NewRectangle(color.NRGBA{R: 235, G: 238, B: 242, A: 255})
+	cornerBg.Resize(fyne.NewSize(g.leftW, g.topH))
+	objs = append(objs, cornerBg)
+
+	for m := r.sw.model.StartMin; m <= r.sw.model.EndMin; m += r.sw.model.SlotMinutes {
+		y := g.gridY + float32(m-r.sw.model.StartMin)*g.minuteH
+		line := canvas.NewLine(color.NRGBA{R: 215, G: 221, B: 230, A: 255})
+		line.Position1 = fyne.NewPos(g.gridX, y)
+		line.Position2 = fyne.NewPos(g.gridX+g.gridW, y)
+		objs = append(objs, line)
+
+		label := canvas.NewText(formatClock(m), color.NRGBA{R: 84, G: 93, B: 105, A: 255})
+		label.TextSize = 13
+		label.Move(fyne.NewPos(12, y-8))
+		objs = append(objs, label)
+	}
+
+	for i, u := range r.sw.visibleUsers {
+		x := g.gridX + float32(i)*g.colW
+
+		vline := canvas.NewLine(color.NRGBA{R: 215, G: 221, B: 230, A: 255})
+		vline.Position1 = fyne.NewPos(x, g.gridY)
+		vline.Position2 = fyne.NewPos(x, g.gridY+g.gridH)
+		objs = append(objs, vline)
+
+		avatar := canvas.NewRectangle(color.NRGBA{R: 221, G: 228, B: 239, A: 255})
+		avatar.Move(fyne.NewPos(x+g.colW/2-18, 10))
+		avatar.Resize(fyne.NewSize(36, 36))
+		objs = append(objs, avatar)
+
+		initials := canvas.NewText(userInitials(u.Name), color.NRGBA{R: 53, G: 69, B: 92, A: 255})
+		initials.TextStyle = fyne.TextStyle{Bold: true}
+		initials.TextSize = 15
+		initials.Move(fyne.NewPos(x+g.colW/2-10, 18))
+		objs = append(objs, initials)
+
+		name := canvas.NewText(strings.ToUpper(shortName(u.Name)), color.NRGBA{R: 84, G: 93, B: 105, A: 255})
+		name.TextSize = 13
+		name.Alignment = fyne.TextAlignCenter
+		name.Move(fyne.NewPos(x+8, 50))
+		name.Resize(fyne.NewSize(g.colW-16, 20))
+		objs = append(objs, name)
+	}
+
+	endLine := canvas.NewLine(color.NRGBA{R: 215, G: 221, B: 230, A: 255})
+	endLine.Position1 = fyne.NewPos(g.gridX+g.gridW, g.gridY)
+	endLine.Position2 = fyne.NewPos(g.gridX+g.gridW, g.gridY+g.gridH)
+	objs = append(objs, endLine)
+
+	sorted := append([]ScheduleBlock(nil), r.sw.model.Blocks...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].UserID == sorted[j].UserID {
+			return sorted[i].StartMin < sorted[j].StartMin
+		}
+		return sorted[i].UserID < sorted[j].UserID
+	})
+
+	userColumn := map[string]int{}
+	for i, u := range r.sw.visibleUsers {
+		userColumn[u.ID] = i
+	}
+
+	for _, b := range sorted {
+		col, ok := userColumn[b.UserID]
+		if !ok {
+			continue
+		}
+
+		x := g.gridX + float32(col)*g.colW + 5
+		y := g.gridY + float32(b.StartMin-r.sw.model.StartMin)*g.minuteH + 4
+		h := float32(b.EndMin-b.StartMin)*g.minuteH - 8
+		if h < 24 {
+			h = 24
+		}
+		w := g.colW - 10
+
+		fill, stroke, txt := blockStyle(b.Kind)
+
+		rect := canvas.NewRectangle(fill)
+		rect.CornerRadius = 8
+		rect.Move(fyne.NewPos(x, y))
+		rect.Resize(fyne.NewSize(w, h))
+		objs = append(objs, rect)
+
+		border := canvas.NewRectangle(color.NRGBA{A: 0})
+		border.StrokeColor = stroke
+		border.StrokeWidth = 1
+		border.CornerRadius = 8
+		border.Move(fyne.NewPos(x, y))
+		border.Resize(fyne.NewSize(w, h))
+		objs = append(objs, border)
+
+		if b.Title != "" {
+			title := canvas.NewText(strings.ToUpper(b.Title), txt)
+			title.TextStyle = fyne.TextStyle{Bold: true}
+			title.TextSize = 14
+			title.Move(fyne.NewPos(x+10, y+10))
+			objs = append(objs, title)
+		}
+	}
+
+	hint := canvas.NewText("click empty space to add a task", color.NRGBA{R: 107, G: 114, B: 128, A: 255})
+	hint.TextSize = 12
+	hint.Move(fyne.NewPos(10, g.outerH-20))
+	objs = append(objs, hint)
+
+	r.objects = objs
+}
+
+func (r *scheduleRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *scheduleRenderer) Destroy() {}
+
+func blockStyle(kind BlockKind) (fill, stroke, txt color.NRGBA) {
+	if kind == BlockUnavailable {
+		return color.NRGBA{R: 229, G: 231, B: 235, A: 255}, color.NRGBA{R: 209, G: 213, B: 219, A: 255}, color.NRGBA{R: 107, G: 114, B: 128, A: 255}
+	}
+	return color.NRGBA{R: 213, G: 232, B: 255, A: 255}, color.NRGBA{R: 94, G: 144, B: 230, A: 255}, color.NRGBA{R: 31, G: 41, B: 55, A: 255}
+}
+
+func main() {
+	a := app.New()
+	w := a.NewWindow("Odoo Load Test Scheduler")
+	w.Resize(fyne.NewSize(1420, 900))
+	w.SetFixedSize(false)
+
+	model := sampleModel()
+
+	status := widget.NewLabel("Starter view: click an empty slot to create a task block.")
+	status.Wrapping = fyne.TextWrapWord
+
+	schedule := NewScheduleWidget(model, model.Users)
+	scroll := container.NewScroll(schedule)
+	scroll.SetMinSize(fyne.NewSize(980, 700))
+
+	schedule.SetHandlers(
+		func(user SimUser, minute int) {
+			nameEntry := widget.NewEntry()
+			nameEntry.SetText("NEW TASK")
+
+			durationOptions := []string{"30", "60", "90", "120"}
+			durationSelect := widget.NewSelect(durationOptions, nil)
+			durationSelect.SetSelected("60")
+
+			kindOptions := []string{"Task", "Unavailable"}
+			kindSelect := widget.NewSelect(kindOptions, nil)
+			kindSelect.SetSelected("Task")
+
+			form := dialog.NewForm(
+				fmt.Sprintf("Add block for %s", user.Name),
+				"Add",
+				"Cancel",
+				[]*widget.FormItem{
+					widget.NewFormItem("Name", nameEntry),
+					widget.NewFormItem("Start", widget.NewLabel(formatClock(minute))),
+					widget.NewFormItem("Duration (minutes)", durationSelect),
+					widget.NewFormItem("Type", kindSelect),
+				},
+				func(ok bool) {
+					if !ok {
+						return
+					}
+
+					duration := parseInt(durationSelect.Selected, 60)
+					title := strings.TrimSpace(nameEntry.Text)
+					if title == "" {
+						title = "UNTITLED"
+					}
+
+					blockKind := BlockTask
+					if kindSelect.Selected == "Unavailable" {
+						blockKind = BlockUnavailable
+					}
+
+					end := minute + duration
+					if end > model.EndMin {
+						end = model.EndMin
+					}
+
+					model.Blocks = append(model.Blocks, ScheduleBlock{
+						ID:       fmt.Sprintf("block-%d", len(model.Blocks)+1),
+						UserID:   user.ID,
+						Title:    title,
+						StartMin: minute,
+						EndMin:   end,
+						Kind:     blockKind,
+					})
+
+					schedule.Refresh()
+					status.SetText(fmt.Sprintf("Added %q for %s from %s to %s.", title, user.Name, formatClock(minute), formatClock(end)))
+				},
+				w,
+			)
+			form.Resize(fyne.NewSize(420, 260))
+			form.Show()
+		},
+		func(block ScheduleBlock) {
+			status.SetText(fmt.Sprintf("%s: %s-%s", displayBlockLabel(block), formatClock(block.StartMin), formatClock(block.EndMin)))
+		},
+	)
+
+	topBar := container.NewBorder(
+		nil,
+		nil,
+		widget.NewButton("1+ ▶", func() {
+			status.SetText("Hook this up to horizontal paging or future NPC columns.")
+		}),
+		widget.NewButton("◀ 4+", func() {
+			status.SetText("Hook this up to horizontal paging or previous NPC columns.")
+		}),
+		widget.NewLabel("Timeline view: pan with the scroll container to inspect different times and simulated users."),
+	)
+
+	rightPane := container.NewVBox(
+		widget.NewLabelWithStyle("Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewButton("Odoo settings", func() {
+			status.SetText("Open a form or secondary window for Odoo environment settings.")
+		}),
+		widget.NewButton("Program settings", func() {
+			status.SetText("Open scheduler/runtime settings here.")
+		}),
+		widget.NewSeparator(),
+		widget.NewLabel("Next good extensions:"),
+		widget.NewLabel("• drag / resize blocks"),
+		widget.NewLabel("• zoom hour scale"),
+		widget.NewLabel("• multi-day or multi-phase timeline"),
+		widget.NewLabel("• per-user color/state badges"),
+	)
+
+	header := container.NewVBox(
+		widget.NewLabelWithStyle("Schedule View", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		topBar,
+	)
+
+	body := container.NewBorder(
+		header,
+		container.NewVBox(widget.NewSeparator(), status),
+		nil,
+		rightPane,
+		container.NewPadded(scroll),
+	)
+
+	w.SetContent(body)
+	w.ShowAndRun()
+}
+
+func sampleModel() *ScheduleModel {
+	users := []SimUser{
+		{ID: "amm", Name: "Ann M.", Group: "Group 1"},
+		{ID: "jv", Name: "Jay V.", Group: "Group 1"},
+		{ID: "bm", Name: "Bea M.", Group: "Group 2"},
+		{ID: "tp", Name: "Terry P.", Group: "Group 2"},
+	}
+
+	return &ScheduleModel{
+		StartMin:    8 * 60,
+		EndMin:      12 * 60,
+		SlotMinutes: 30,
+		Users:       users,
+		Blocks: []ScheduleBlock{
+			{ID: "u1", UserID: "amm", StartMin: 8 * 60, EndMin: 9 * 60, Kind: BlockTask, Title: "POS"},
+			{ID: "u2", UserID: "amm", StartMin: 10 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
+			{ID: "u3", UserID: "jv", StartMin: 8 * 60, EndMin: 8*60 + 30, Kind: BlockUnavailable},
+			{ID: "u4", UserID: "jv", StartMin: 8*60 + 30, EndMin: 11 * 60, Kind: BlockTask, Title: "ACCT"},
+			{ID: "u5", UserID: "jv", StartMin: 11 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
+			{ID: "u6", UserID: "bm", StartMin: 8 * 60, EndMin: 8*60 + 30, Kind: BlockTask, Title: "LOGI"},
+			{ID: "u7", UserID: "bm", StartMin: 8*60 + 30, EndMin: 10 * 60, Kind: BlockUnavailable},
+			{ID: "u8", UserID: "bm", StartMin: 10 * 60, EndMin: 11 * 60, Kind: BlockTask, Title: "SWIN"},
+			{ID: "u9", UserID: "bm", StartMin: 11 * 60, EndMin: 12 * 60, Kind: BlockUnavailable},
+			{ID: "u10", UserID: "tp", StartMin: 8 * 60, EndMin: 10 * 60, Kind: BlockUnavailable},
+			{ID: "u11", UserID: "tp", StartMin: 10 * 60, EndMin: 12 * 60, Kind: BlockTask, Title: "POS"},
+		},
+	}
+}
+
+func displayBlockLabel(block ScheduleBlock) string {
+	if block.Title != "" {
+		return block.Title
+	}
+	return "Unavailable"
+}
+
+func userInitials(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "?"
+	}
+	if len(parts) == 1 {
+		return strings.ToUpper(parts[0][:1])
+	}
+	return strings.ToUpper(parts[0][:1] + parts[len(parts)-1][:1])
+}
+
+func shortName(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return name
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return parts[0] + " " + parts[len(parts)-1]
+}
+
+func formatClock(minute int) string {
+	h := minute / 60
+	m := minute % 60
+	suffix := "AM"
+	if h >= 12 {
+		suffix = "PM"
+	}
+	if h > 12 {
+		h -= 12
+	}
+	if h == 0 {
+		h = 12
+	}
+	return fmt.Sprintf("%d:%02d %s", h, m, suffix)
+}
+
+func snapDown(value, step int) int {
+	if step <= 0 {
+		return value
+	}
+	return value - (value % step)
+}
+
+func parseInt(value string, fallback int) int {
+	var out int
+	if _, err := fmt.Sscanf(value, "%d", &out); err != nil {
+		return fallback
+	}
+	return out
+}
+
+func maxf(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
