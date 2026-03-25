@@ -411,10 +411,10 @@ func main() {
 	topBar := container.NewBorder(
 		nil,
 		nil,
-		widget.NewButton("1+ ▶", func() {
+		widget.NewButton("←", func() {
 			status.SetText("Hook this up to horizontal paging or future NPC columns.")
 		}),
-		widget.NewButton("◀ 4+", func() {
+		widget.NewButton("→", func() {
 			status.SetText("Hook this up to horizontal paging or previous NPC columns.")
 		}),
 		widget.NewLabel("Timeline view: scroll vertically to inspect the full day across simulated users."),
@@ -531,17 +531,7 @@ func formatClock(minute int) string {
 
 	h := minute / 60
 	m := minute % 60
-	suffix := "AM"
-	if h >= 12 {
-		suffix = "PM"
-	}
-	if h > 12 {
-		h -= 12
-	}
-	if h == 0 {
-		h = 12
-	}
-	return fmt.Sprintf("%d:%02d %s", h, m, suffix)
+	return fmt.Sprintf("%02d:%02d", h, m)
 }
 
 func snapDown(value, step int) int {
